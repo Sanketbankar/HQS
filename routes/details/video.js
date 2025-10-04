@@ -2,6 +2,7 @@
 
 const express = require('express');
 const cheerio = require('cheerio');
+const axios = require('axios');
 
 let chromium, puppeteer;
 
@@ -12,6 +13,61 @@ try {
     } else {
         puppeteer = require('puppeteer');
     }
+
+// Try to extract sources from raw HTML without a browser
+function extractSourcesFromHtml(html) {
+    const $ = cheerio.load(html);
+    const results = [];
+    // Direct <video><source> tags inside container
+    const videoEl = $('div#jwd video').first();
+    if (videoEl.length) {
+        videoEl.find('source').each((_, el) => {
+            const title = $(el).attr('title') || '';
+            const src = $(el).attr('src') || '';
+            if (src) results.push({ title, src });
+        });
+    }
+
+    // Common JS patterns (jwplayer/setup, sources:[], file:, src:)
+    if (results.length === 0) {
+        const patterns = [
+            /sources\s*:\s*\[(.*?)\]/is,
+            /file\s*:\s*['"]([^'"\s]+)['"]/ig,
+            /src\s*:\s*['"]([^'"\s]+)['"]/ig
+        ];
+        const text = $.root().html() || '';
+        for (const re of patterns) {
+            let m;
+            if (re.flags.includes('g')) {
+                while ((m = re.exec(text)) !== null) {
+                    const url = m[1];
+                    if (url && /\.(m3u8|mp4|mkv)(\?|$)/i.test(url)) {
+                        results.push({ title: '', src: url });
+                    }
+                }
+            } else {
+                m = re.exec(text);
+                if (m && m[1]) {
+                    // Attempt to parse JSON array of sources
+                    try {
+                        const arrText = m[1];
+                        const fileRe = /file\s*:\s*['"]([^'"\s]+)['"]/ig;
+                        let fm;
+                        while ((fm = fileRe.exec(arrText)) !== null) {
+                            const url = fm[1];
+                            if (url) results.push({ title: '', src: url });
+                        }
+                    } catch {}
+                }
+            }
+        }
+    }
+
+    // If an iframe exists, return its src for caller to fetch
+    const iframe = $('iframe').first();
+    const iframeSrc = iframe.attr('src') || null;
+    return { results, iframeSrc };
+}
 } catch (error) {
     console.error('Error loading puppeteer:', error);
     throw error;
@@ -76,90 +132,63 @@ router.get(/\/(.*)/, async (req, res) => {
 
         const videoUrl = `${BASE}/${videoPath}`;
 
-        // STEP 1: Launch Puppeteer with Chrome AWS Lambda
-        // ==========================================================
-        
-        // Configure browser based on environment
-        if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-            // Production environment (Vercel/AWS Lambda)
-            console.log('📦 Setting up Chromium for serverless...');
-
-            const executablePath = await chromium.executablePath();
-            console.log('✅ Executable path:', executablePath);
-
-            if (!executablePath) {
-                throw new Error('Chromium executablePath is empty. Ensure @sparticuz/chromium is bundled via includeFiles in vercel.json.');
-            }
-
-            const lambdaArgs = [
-                ...chromium.args,
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--single-process',
-                '--no-zygote',
-                '--disable-gpu'
-            ];
-
-            browser = await puppeteer.launch({
-                args: lambdaArgs,
-                defaultViewport: chromium.defaultViewport,
-                executablePath,
-                headless: true,
-                ignoreHTTPSErrors: true,
+        // STEP 1: Browserless-first approach
+        // 1) Try static fetch + iframe follow without a browser
+        let html = '';
+        try {
+            const resp = await axios.get(videoUrl, {
+                timeout: 20000,
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' }
             });
-        } else {
-            // Local development environment
-            console.log('💻 Using local Puppeteer...');
-            browser = await puppeteer.launch({
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-web-security'
-                ],
-                ignoreHTTPSErrors: true,
-            });
+            html = resp.data;
+        } catch (e) {
+            console.log('⚠️ Initial fetch failed, will try browserless if configured:', e.message);
         }
 
-        const page = await browser.newPage();
+        if (html) {
+            const { results, iframeSrc } = extractSourcesFromHtml(html);
+            if (results.length) {
+                sources = results;
+            } else if (iframeSrc) {
+                try {
+                    const iframeUrl = iframeSrc.startsWith('http') ? iframeSrc : (iframeSrc.startsWith('//') ? 'https:' + iframeSrc : new URL(iframeSrc, videoUrl).toString());
+                    const iframeResp = await axios.get(iframeUrl, { timeout: 20000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    const iframeParsed = extractSourcesFromHtml(iframeResp.data);
+                    if (iframeParsed.results.length) sources = iframeParsed.results;
+                } catch (e) {
+                    console.log('⚠️ Iframe fetch failed:', e.message);
+                }
+            }
+        }
 
-        // Set realistic user agent
-        await page.setUserAgent(
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-        );
+        // 2) If still no sources and Browserless endpoint provided, connect without launching local Chromium
+        let page;
+        if (!sources.length && process.env.BROWSERLESS_WS_URL) {
+            console.log('🔌 Connecting to Browserless via WebSocket...');
+            const browserless = await puppeteer.connect({ browserWSEndpoint: process.env.BROWSERLESS_WS_URL });
+            browser = browserless;
+            page = await browser.newPage();
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+            await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+            await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+            try {
+                sources = await extractSources(page, containerSelector);
+            } catch {}
+        }
 
-        // Remove webdriver flag
-        await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => false,
+        // 3) As a final fallback (local dev only), launch Puppeteer locally
+        if (!sources.length && !(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)) {
+            console.log('💻 Fallback: launching local Puppeteer...');
+            browser = await puppeteer.launch({
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
             });
-            // Add chrome object
-            window.chrome = { runtime: {} };
-            // Mock permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications'
-                    ? Promise.resolve({ state: Notification.permission })
-                    : originalQuery(parameters)
-            );
-        });
-
-        // Set extra headers
-        await page.setExtraHTTPHeaders({
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        });
-
-        console.log('🌐 Navigating to:', videoUrl);
-        
-        await page.goto(videoUrl, {
-            waitUntil: 'networkidle2',
-            timeout: 50000
-        });
-
-        console.log('✅ Page loaded successfully');
+            page = await browser.newPage();
+            await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+            try {
+                sources = await extractSources(page, containerSelector);
+            } catch {}
+        }
 
         // ==========================================================
         // STEP 2: Scrape Dynamic Content (Video Sources)
