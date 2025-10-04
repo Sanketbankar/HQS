@@ -191,36 +191,38 @@ router.get(/\/(.*)/, async (req, res) => {
         }
 
         // ==========================================================
-        // STEP 2: Scrape Dynamic Content (Video Sources)
+        // STEP 2: Scrape Dynamic Content (Video Sources) when a page exists
         // ==========================================================
-        try {
-            // Attempt 1: Check in the main frame using the div#jwd selector
-            sources = await extractSources(page, containerSelector);
-            console.log(`✅ Sources found in main frame using ${containerSelector}.`);
-
-        } catch (e) {
-            console.log(`❌ Main frame selector failed: ${e.message}. Attempting iframe check.`);
-
-            // Attempt 2: Check for a generic iframe and search inside it
+        if (!sources.length && page) {
             try {
-                const iframeElement = await page.waitForSelector('iframe', { timeout: 10000 });
+                // Attempt 1: Check in the main frame using the div#jwd selector
+                sources = await extractSources(page, containerSelector);
+                console.log(`✅ Sources found in main frame using ${containerSelector}.`);
 
-                if (iframeElement) {
-                    const frame = await iframeElement.contentFrame();
+            } catch (e) {
+                console.log(`❌ Main frame selector failed: ${e.message}. Attempting iframe check.`);
 
-                    if (frame) {
-                        // Search inside the iframe's content frame
-                        sources = await extractSources(frame, containerSelector);
-                        console.log(`✅ Sources found inside iframe using ${containerSelector}.`);
+                // Attempt 2: Check for a generic iframe and search inside it
+                try {
+                    const iframeElement = await page.waitForSelector('iframe', { timeout: 10000 });
+
+                    if (iframeElement) {
+                        const frame = await iframeElement.contentFrame();
+
+                        if (frame) {
+                            // Search inside the iframe's content frame
+                            sources = await extractSources(frame, containerSelector);
+                            console.log(`✅ Sources found inside iframe using ${containerSelector}.`);
+                        } else {
+                            throw new Error('Video container failed and could not access iframe content (likely cross-origin).');
+                        }
                     } else {
-                        throw new Error('Video container failed and could not access iframe content (likely cross-origin).');
+                        throw new Error('Video container failed and no iframe was found to check.');
                     }
-                } else {
-                    throw new Error('Video container failed and no iframe was found to check.');
+                } catch (iframeError) {
+                    console.log(`⚠️  Could not extract sources from iframe: ${iframeError.message}`);
+                    // Continue anyway - sources will be empty
                 }
-            } catch (iframeError) {
-                console.log(`⚠️  Could not extract sources from iframe: ${iframeError.message}`);
-                // Continue anyway - sources will be empty
             }
         }
 
@@ -228,9 +230,24 @@ router.get(/\/(.*)/, async (req, res) => {
         // STEP 3: Scrape Static Content using Cheerio
         // ==========================================================
         console.log('📄 Extracting static content...');
-        
-        const htmlContent = await page.content();
-        $ = cheerio.load(htmlContent);
+        let htmlContent = '';
+        if (page) {
+            try {
+                htmlContent = await page.content();
+            } catch {}
+        }
+        if (!htmlContent) {
+            // Fallback to prior fetched HTML if available; otherwise refetch
+            if (!html) {
+                try {
+                    const resp2 = await axios.get(videoUrl, { timeout: 20000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    htmlContent = resp2.data;
+                } catch {}
+            } else {
+                htmlContent = html;
+            }
+        }
+        $ = cheerio.load(htmlContent || '<html></html>');
 
         // 1️⃣ Video Title
         const videoTitle = $('header h1').text().trim();
