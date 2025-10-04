@@ -15,7 +15,19 @@
   "functions": {
     "server.js": {
       "memory": 3008,
-      "maxDuration": 60
+      "maxDuration": 300,
+      "includeFiles": [
+        "node_modules/@sparticuz/chromium/**"
+      ]
     }
+  },
+  "build": {
+    "env": {
+      "NODE_ENV": "production"
+    }
+  },
+  "env": {
+    "NODE_ENV": "production",
+    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true"
   }
 }
