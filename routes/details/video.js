@@ -1,9 +1,13 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer-extra'); // 👈 Use puppeteer-extra
+const { addExtra } = require('puppeteer-extra'); // 👈 Get addExtra to wrap puppeteer-core
+const puppeteerCore = require('puppeteer-core'); // 👈 Use puppeteer-core explicitly
 const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // 👈 Import Stealth Plugin
+const chromium = require('@sparticuz/chromium'); // 👈 Lambda/portable Chromium
 
+// Create a puppeteer instance by wrapping puppeteer-core with puppeteer-extra
+const puppeteer = addExtra(puppeteerCore);
 // Apply the stealth plugin globally
 puppeteer.use(StealthPlugin());
 
@@ -25,7 +29,7 @@ function extractIdFromUrl(url) {
  */
 async function extractSources(context, selector) {
     // Wait for the container selector to be visible (up to 60 seconds)
-    await context.waitForSelector(selector, { visible: true, timeout: 1000 });
+    await context.waitForSelector(selector, { visible: true, timeout: 15000 });
 
     const sources = await context.evaluate((sel) => {
         const sourceArray = [];
@@ -64,14 +68,23 @@ router.get(/\/(.*)/, async (req, res) => {
         // ==========================================================
         // STEP 1: Launch Puppeteer with Stealth Mode
         // ==========================================================
+        const executablePath = await chromium.executablePath();
+        console.log('🧭 Chromium executablePath:', executablePath);
         browser = await puppeteer.launch({
-            headless: 'new', // Use the new headless mode
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            // chromium.headless ensures compatibility across environments
+            headless: chromium.headless,
+            args: [
+                ...chromium.args,
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage'
+            ],
+            executablePath
         });
         const page = await browser.newPage();
         await page.goto(videoUrl, {
             waitUntil: 'networkidle2',
-            timeout: 8000 // Increased initial navigation timeout
+            timeout: 30000 // More generous for server environments
         });
 
         // ==========================================================
