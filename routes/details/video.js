@@ -1,6 +1,9 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { addExtra } = require('puppeteer-extra'); // 👈 Get addExtra to wrap puppeteer-core
 const puppeteerCore = require('puppeteer-core'); // 👈 Use puppeteer-core explicitly
 const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // 👈 Import Stealth Plugin
@@ -19,6 +22,24 @@ function extractIdFromUrl(url) {
     const parts = url.split('/');
     const lastPart = parts.pop() || parts.pop();
     return lastPart || null;
+}
+
+// To avoid ETXTBSY when executing a binary on certain filesystems, copy
+// the chromium binary to a unique temp file and chmod it executable first.
+function prepareExecutable(originalPath) {
+    if (!originalPath) return originalPath;
+    try {
+        const tmpDir = os.tmpdir();
+        const unique = `chromium-${process.pid}-${Date.now()}`;
+        const destPath = path.join(tmpDir, unique);
+        fs.copyFileSync(originalPath, destPath);
+        fs.chmodSync(destPath, 0o755);
+        return destPath;
+    } catch (e) {
+        // Fall back to original path if copy fails; we'll log and continue.
+        console.warn('prepareExecutable failed, falling back to original path:', e.message);
+        return originalPath;
+    }
 }
 
 /**
@@ -68,11 +89,13 @@ router.get(/\/(.*)/, async (req, res) => {
         // ==========================================================
         // STEP 1: Launch Puppeteer with Stealth Mode
         // ==========================================================
-        const executablePath = await chromium.executablePath();
-        console.log('🧭 Chromium executablePath:', executablePath);
-        if (!executablePath) {
+        const resolvedPath = await chromium.executablePath();
+        console.log('🧭 Chromium resolved executablePath:', resolvedPath);
+        if (!resolvedPath) {
             throw new Error('chromium.executablePath() returned empty. Ensure @sparticuz/chromium is installed and compatible with your platform.');
         }
+        const executablePath = prepareExecutable(resolvedPath);
+        console.log('🧭 Chromium prepared executablePath:', executablePath);
         browser = await puppeteer.launch({
             // chromium.headless ensures compatibility across environments
             headless: chromium.headless,
