@@ -70,6 +70,9 @@ router.get(/\/(.*)/, async (req, res) => {
         // ==========================================================
         const executablePath = await chromium.executablePath();
         console.log('🧭 Chromium executablePath:', executablePath);
+        if (!executablePath) {
+            throw new Error('chromium.executablePath() returned empty. Ensure @sparticuz/chromium is installed and compatible with your platform.');
+        }
         browser = await puppeteer.launch({
             // chromium.headless ensures compatibility across environments
             headless: chromium.headless,
