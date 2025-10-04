@@ -110,7 +110,7 @@ router.get(/\/(.*)/, async (req, res) => {
         const page = await browser.newPage();
         await page.goto(videoUrl, {
             waitUntil: 'networkidle2',
-            timeout: 30000 // More generous for server environments
+            timeout: 60000 // More generous for server environments
         });
 
         // ==========================================================
