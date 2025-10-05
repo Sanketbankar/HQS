@@ -38,7 +38,7 @@ async function extractSources(context, selector) {
   }, selector);
 }
 
-router.get("/:videoPath(*)", async (req, res) => {
+router.get(/\/(.*)/, async (req, res) => {
   let browser;
   let page;
 
