@@ -1,18 +1,9 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer-extra');
+const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
-// Apply the stealth plugin with problematic evasions disabled for serverless environments
-const stealth = StealthPlugin();
-stealth.enabledEvasions.delete('chrome.app');
-stealth.enabledEvasions.delete('chrome.csi');
-stealth.enabledEvasions.delete('chrome.loadTimes');
-stealth.enabledEvasions.delete('chrome.runtime');
-stealth.enabledEvasions.delete('iframe.contentWindow');
-puppeteer.use(stealth);
 
 const CHROME_EXECUTABLE_PATH =
     process.env.PUPPETEER_EXECUTABLE_PATH ||
@@ -79,11 +70,12 @@ router.get(/\/(.*)/, async (req, res) => {
         // Configure Chromium for serverless
         const executablePath = CHROME_EXECUTABLE_PATH || await chromium.executablePath();
         browser = await puppeteer.launch({
-            headless: chromium.headless,
-            args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+            args: chromium.args,
             defaultViewport: chromium.defaultViewport,
-            executablePath,
-        });
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+          });
+          
         const page = await browser.newPage();
         await page.goto(videoUrl, {
             waitUntil: 'networkidle2',
