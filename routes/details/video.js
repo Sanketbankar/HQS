@@ -5,6 +5,11 @@ const puppeteer = require('puppeteer-extra'); //
 const chromium = require('@sparticuz/chromium'); // Vercel-compatible Chromium
 const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // Import Stealth Plugin
 
+// Force Vercel to include puppeteer-extra plugins by explicitly requiring them.
+// These are dynamically required by puppeteer-extra, which can be missed by the bundler.
+require('puppeteer-extra-plugin-user-data-dir');
+require('puppeteer-extra-plugin-user-preferences');
+
 const CHROME_EXECUTABLE_PATH =
     process.env.PUPPETEER_EXECUTABLE_PATH ||
     process.env.CHROME_PATH || // sometimes used by platforms
