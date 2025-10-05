@@ -1,11 +1,24 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const puppeteer = require('puppeteer-extra'); // 👈 Use puppeteer-extra
-const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // 👈 Import Stealth Plugin
+const puppeteer = require('puppeteer-extra'); // 
+const chromium = require('@sparticuz/chromium'); // Vercel-compatible Chromium
+const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // Import Stealth Plugin
 
-// Apply the stealth plugin globally
-puppeteer.use(StealthPlugin());
+const CHROME_EXECUTABLE_PATH =
+    process.env.PUPPETEER_EXECUTABLE_PATH ||
+    process.env.CHROME_PATH || // sometimes used by platforms
+    null;
+
+// Apply the stealth plugin with certain evasions disabled for serverless builds
+const stealth = StealthPlugin();
+// These evasions can cause "Cannot find module .../evasions/<name>" in bundled envs
+stealth.enabledEvasions.delete('chrome.app');
+stealth.enabledEvasions.delete('chrome.csi');
+stealth.enabledEvasions.delete('chrome.loadTimes');
+stealth.enabledEvasions.delete('chrome.runtime');
+stealth.enabledEvasions.delete('iframe.contentWindow');
+puppeteer.use(stealth);
 
 const router = express.Router();
 const BASE = 'https://hqporner.com/hdporn';
@@ -64,9 +77,13 @@ router.get(/\/(.*)/, async (req, res) => {
         // ==========================================================
         // STEP 1: Launch Puppeteer with Stealth Mode
         // ==========================================================
+        // Configure Chromium for serverless
+        const executablePath = CHROME_EXECUTABLE_PATH || await chromium.executablePath();
         browser = await puppeteer.launch({
-            headless: 'new', // Use the new headless mode
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            headless: chromium.headless,
+            args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+            defaultViewport: chromium.defaultViewport,
+            executablePath,
         });
         const page = await browser.newPage();
         await page.goto(videoUrl, {

@@ -38,7 +38,5 @@ app.use('/api/search', searchRoute);
 app.use('/api/detail/hdporn', detailRoute);
 app.use('/api/studio', studioRoute);
 
-
-app.listen(PORT, () => {
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
-});
+// Export the Express app for Vercel Serverless
+module.exports = app;
