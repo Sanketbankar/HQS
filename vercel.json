@@ -7,7 +7,9 @@
       "config": {
         "includeFiles": [
           "node_modules/@sparticuz/chromium/**",
-          "node_modules/puppeteer-extra-plugin-stealth/**"
+          "node_modules/puppeteer-extra/**",
+          "node_modules/puppeteer-extra-plugin-stealth/**",
+          "node_modules/puppeteer-extra-plugin-user-preferences/**"
         ],
         "maxLambdaSize": "120mb"
       }
