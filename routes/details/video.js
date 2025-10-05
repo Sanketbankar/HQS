@@ -1,16 +1,9 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { addExtra } = require('puppeteer-extra'); // 👈 Get addExtra to wrap puppeteer-core
-const puppeteerCore = require('puppeteer-core'); // 👈 Use puppeteer-core explicitly
+const puppeteer = require('puppeteer-extra'); // 👈 Use puppeteer-extra
 const StealthPlugin = require('puppeteer-extra-plugin-stealth'); // 👈 Import Stealth Plugin
-const chromium = require('@sparticuz/chromium'); // 👈 Lambda/portable Chromium
 
-// Create a puppeteer instance by wrapping puppeteer-core with puppeteer-extra
-const puppeteer = addExtra(puppeteerCore);
 // Apply the stealth plugin globally
 puppeteer.use(StealthPlugin());
 
@@ -24,24 +17,6 @@ function extractIdFromUrl(url) {
     return lastPart || null;
 }
 
-// To avoid ETXTBSY when executing a binary on certain filesystems, copy
-// the chromium binary to a unique temp file and chmod it executable first.
-function prepareExecutable(originalPath) {
-    if (!originalPath) return originalPath;
-    try {
-        const tmpDir = os.tmpdir();
-        const unique = `chromium-${process.pid}-${Date.now()}`;
-        const destPath = path.join(tmpDir, unique);
-        fs.copyFileSync(originalPath, destPath);
-        fs.chmodSync(destPath, 0o755);
-        return destPath;
-    } catch (e) {
-        // Fall back to original path if copy fails; we'll log and continue.
-        console.warn('prepareExecutable failed, falling back to original path:', e.message);
-        return originalPath;
-    }
-}
-
 /**
  * Core scraping logic to extract video sources, supporting iframes.
  * @param {import('puppeteer').Page | import('puppeteer').Frame} context - The Puppeteer Page or Frame object.
@@ -50,7 +25,7 @@ function prepareExecutable(originalPath) {
  */
 async function extractSources(context, selector) {
     // Wait for the container selector to be visible (up to 60 seconds)
-    await context.waitForSelector(selector, { visible: true, timeout: 15000 });
+    await context.waitForSelector(selector, { visible: true, timeout: 1000 });
 
     const sources = await context.evaluate((sel) => {
         const sourceArray = [];
@@ -89,28 +64,14 @@ router.get(/\/(.*)/, async (req, res) => {
         // ==========================================================
         // STEP 1: Launch Puppeteer with Stealth Mode
         // ==========================================================
-        const resolvedPath = await chromium.executablePath();
-        console.log('🧭 Chromium resolved executablePath:', resolvedPath);
-        if (!resolvedPath) {
-            throw new Error('chromium.executablePath() returned empty. Ensure @sparticuz/chromium is installed and compatible with your platform.');
-        }
-        const executablePath = prepareExecutable(resolvedPath);
-        console.log('🧭 Chromium prepared executablePath:', executablePath);
         browser = await puppeteer.launch({
-            // chromium.headless ensures compatibility across environments
-            headless: chromium.headless,
-            args: [
-                ...chromium.args,
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage'
-            ],
-            executablePath
+            headless: 'new', // Use the new headless mode
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
         await page.goto(videoUrl, {
             waitUntil: 'networkidle2',
-            timeout: 60000 // More generous for server environments
+            timeout: 8000 // Increased initial navigation timeout
         });
 
         // ==========================================================
@@ -181,12 +142,13 @@ router.get(/\/(.*)/, async (req, res) => {
                     const href = $a.attr('href') ? 'https://hqporner.com' + $a.attr('href') : null;
                     const id = extractIdFromUrl(href);
                     cast.push({
-                        name: $a.text().trim(),
                         id,
+                        name: $a.text().trim(),
                         href
                     });
                 });
             }
+
         }
 
         const videoDetails = { videoTitle, uploadDate, duration, cast };
@@ -206,8 +168,8 @@ router.get(/\/(.*)/, async (req, res) => {
                     const href = $a.attr('href') ? 'https://hqporner.com' + $a.attr('href') : null;
                     const id = extractIdFromUrl(href);
                     categoryLinks.push({
-                        text: $a.text().trim(),
                         id,
+                        text: $a.text().trim(),
                         href
                     });
                 });
@@ -218,8 +180,6 @@ router.get(/\/(.*)/, async (req, res) => {
                 });
             }
         }
-
-
 
 
         // 3️⃣ Sidebar (Scraping logic unchanged)
