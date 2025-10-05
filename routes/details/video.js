@@ -43,7 +43,7 @@ router.get(/\/(.*)/, async (req, res) => {
   let page;
 
   try {
-    const { videoPath } = req.params;
+    const videoPath = req.params[0];
     if (!videoPath)
       return res.status(400).json({ status: "error", message: "Missing video path" });
 
