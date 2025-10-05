@@ -5,11 +5,6 @@ const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 
 
-const CHROME_EXECUTABLE_PATH =
-    process.env.PUPPETEER_EXECUTABLE_PATH ||
-    process.env.CHROME_PATH || // sometimes used by platforms
-    null;
-
 const router = express.Router();
 const BASE = 'https://hqporner.com/hdporn';
 
@@ -68,19 +63,15 @@ router.get(/\/(.*)/, async (req, res) => {
         // STEP 1: Launch Puppeteer with Stealth Mode
         // ==========================================================
         // Configure Chromium for serverless
-        const executablePath = CHROME_EXECUTABLE_PATH || await chromium.executablePath();
         browser = await puppeteer.launch({
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
             headless: chromium.headless,
-          });
-          
-        const page = await browser.newPage();
-        await page.goto(videoUrl, {
-            waitUntil: 'networkidle2',
-            timeout: 8000 // Increased initial navigation timeout
         });
+
+        const page = await browser.newPage();
+        await page.goto(videoUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
         // ==========================================================
         // STEP 2: Scrape Dynamic Content (Video Sources)
