@@ -9,7 +9,8 @@
           "node_modules/@sparticuz/chromium/**",
           "node_modules/puppeteer-extra/**",
           "node_modules/puppeteer-extra-plugin-stealth/**",
-          "node_modules/puppeteer-extra-plugin-user-preferences/**"
+          "node_modules/puppeteer-extra-plugin-user-preferences/**",
+          "lib/**"
         ],
         "maxLambdaSize": "120mb"
       }
