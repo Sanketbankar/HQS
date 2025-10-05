@@ -6,11 +6,7 @@
       "use": "@vercel/node",
       "config": {
         "includeFiles": [
-          "node_modules/@sparticuz/chromium/**",
-          "node_modules/puppeteer-extra/**",
-          "node_modules/puppeteer-extra-plugin-stealth/**",
-          "node_modules/puppeteer-extra-plugin-user-preferences/**",
-          "lib/**"
+          "node_modules/@sparticuz/chromium/**"
         ],
         "maxLambdaSize": "120mb"
       }
