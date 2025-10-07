@@ -1,17 +1,8 @@
 const express = require("express");
-const axios = require("axios");
-const cheerio = require("cheerio");
 const { getBrowser } = require("../../utils/browser");
 
 const router = express.Router();
 const BASE = "https://hqporner.com/hdporn";
-
-function extractIdFromUrl(url) {
-  if (!url) return null;
-  const parts = url.split("/");
-  const lastPart = parts.pop() || parts.pop();
-  return lastPart || null;
-}
 
 /**
  * Extract video sources from a Puppeteer context (page or iframe)
@@ -41,18 +32,42 @@ async function extractSources(context, selector) {
 
 router.get("/:id", async (req, res) => {
   let browser;
+  let url;
+  
   try {
+    console.log('Starting video request for ID:', req.params.id);
     const { id } = req.params;
-    const url = `${BASE}/${id}.html`;
+    
+    if (!id || typeof id !== 'string' || id.includes('..')) {
+      console.error('Invalid video ID:', id);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid video ID'
+      });
+    }
+    
+    url = `${BASE}/${id}.html`;
+    console.log('Processing URL:', url);
     
     // Launch browser using our utility
+    console.log('Launching browser...');
     browser = await getBrowser();
     const page = await browser.newPage();
+    
+    console.log('Setting up page...');
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
     await page.setViewport({ width: 1920, height: 1080 });
     
     // Navigate to the page
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    console.log('Navigating to URL...');
+    const response = await page.goto(url, { 
+      waitUntil: 'networkidle2', 
+      timeout: 30000 
+    });
+    
+    if (!response || !response.ok()) {
+      throw new Error(`Failed to load page: ${response ? response.status() : 'No response'}`);
+    }
 
     // Extract video sources
     const sources = await extractSources(page, 'video');
@@ -85,10 +100,20 @@ router.get("/:id", async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error in video route:', error);
+    console.error('Error in video route:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code,
+      url: url,
+      params: req.params,
+      query: req.query
+    });
+    
     res.status(500).json({
       success: false,
-      error: error.message || 'An error occurred while processing your request'
+      error: 'An error occurred while processing your request',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   } finally {
     if (browser) {
