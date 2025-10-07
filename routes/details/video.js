@@ -1,5 +1,4 @@
 const express = require("express");
-const axios = require("axios");
 const cheerio = require("cheerio");
 const { getBrowser } = require("../../utils/browser");
 
@@ -24,115 +23,87 @@ async function extractSources(context, selector) {
       const videoContainer = document.querySelector(sel);
       const videoElement = videoContainer ? videoContainer.querySelector("video") : null;
 
-    if (videoElement) {
-      videoElement.querySelectorAll("source").forEach((srcEl) => {
-        const title = srcEl.getAttribute("title") || "";
-        const src = srcEl.src || srcEl.getAttribute("src") || "";
-        if (src) sourceArray.push({ title, src });
-    }
-    return sourceArray;
-  }, selector);
+      if (videoElement) {
+        videoElement.querySelectorAll("source").forEach((srcEl) => {
+          const title = srcEl.getAttribute("title") || "";
+          const src = srcEl.src || srcEl.getAttribute("src") || "";
+          if (src) sourceArray.push({ title, src });
+        });
+      }
+      return sourceArray;
+    }, selector);
+  } catch (error) {
+    console.error('Error extracting sources:', error);
+    return [];
+  }
 }
 
 router.get("/:id", async (req, res) => {
   let browser;
+  let page;
+  
   try {
     const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Video ID is required' });
+    }
+    
     const url = `${BASE}/${id}.html`;
+    console.log('Processing URL:', url);
     
     // Launch browser using our utility
     browser = await getBrowser();
-    const page = await browser.newPage();
+    page = await browser.newPage();
+    
+    // Configure page
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
     await page.setViewport({ width: 1920, height: 1080 });
     
     // Navigate to the page
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    const videoPath = req.params[0];
-    if (!videoPath)
-      return res.status(400).json({ status: "error", message: "Missing video path" });
-
-    const videoUrl = `${BASE}/${videoPath}`;
-    console.log(`🎬 Fetching video: ${videoUrl}`);
-{{ ... }}
+    const response = await page.goto(url, { 
+      waitUntil: 'networkidle2', 
+      timeout: 30000 
     });
-
-    // ==========================================================
-    // STEP 4: Return all results
-    // ==========================================================
-    return res.json({
-      success: true,
-      data: {
-        videoDetails,
-        sources,
-        categories,
-        sidebarSections,
-        mainSections,
-        similarLinks,
-      }
-    });
-  } catch (error) {
-    console.error('Error in video route:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'An error occurred while processing your request'
-    });
-      res.status(500).json({ status: "error", message: err.message });
-  } finally {
-    if (browser) await browser.close();
-  }
-});
-
-module.exports = router;
-
-    console.error('Error in video route:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'An error occurred while processing your request'
-    });
-  } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (e) {
-        console.error('Error closing browser:', e);
-      }
+    
+    if (!response || !response.ok()) {
+      throw new Error(`Failed to load page: ${response ? response.status() : 'No response'}`);
     }
-  }
-});
 
-module.exports = router;
+    // Get the page content
+    const content = await page.content();
+    const $ = cheerio.load(content);
 
+    // Extract video details
+    const videoTitle = $('h1').first().text().trim();
+    const uploadDate = $('time').first().attr('datetime') || '';
+    const duration = $('span.duration').first().text().trim();
 
-module.exports = router;
-
-          const $a = $(aEl);
-          const href = $a.attr("href") ? "https://hqporner.com" + $a.attr("href") : null;
-          const id = extractIdFromUrl(href);
-          cast.push({ id, name: $a.text().trim(), href });
+    // Extract cast information
+    const cast = [];
+    const castElements = $('div.cast a');
+    if (castElements.length > 0) {
+      castElements.each((i, el) => {
+        const $el = $(el);
+        cast.push({
+          name: $el.text().trim(),
+          url: $el.attr('href')
         });
-    }
-
-    const videoDetails = { videoTitle, uploadDate, duration, cast };
-
-    // 📂 Categories
-    const categories = [];
-    const pageContent = $("div.box.page-content");
-    const sections = pageContent.find("section");
-    if (sections.length >= 3) {
-      const thirdSection = sections.eq(2);
-      const sectionTitle = thirdSection.find("h3").text().trim();
-      const categoryLinks = [];
-      thirdSection.find("p a").each((_, aEl) => {
-        const $a = $(aEl);
-        const href = $a.attr("href") ? "https://hqporner.com" + $a.attr("href") : null;
-        const id = extractIdFromUrl(href);
-        categoryLinks.push({ id, text: $a.text().trim(), href });
       });
-      categories.push({ sectionTitle, links: categoryLinks });
     }
 
-    // 🧩 Sidebar Sections
+    // Extract video sources
+    const sources = await extractSources(page, 'video');
+
+    const categories = [];
+    $('div.categories a').each((i, el) => {
+      const $el = $(el);
+      categories.push({
+        name: $el.text().trim(),
+        href: $el.attr('href') ? 'https://hqporner.com' + $el.attr('href') : null
+      });
+    });
+
+    // Extract sidebar sections
     const sidebarSections = [];
     $("div.sidebar section").each((_, section) => {
       const sectionTitle = $(section).find("h2").text().trim();
@@ -142,9 +113,7 @@ module.exports = router;
         .each((_, li) => {
           const h3 = $(li).find("h3");
           if (!h3.length) return;
-          const href = $(li).find("a").attr("href")
-            ? "https://hqporner.com" + $(li).find("a").attr("href")
-            : null;
+          const href = $(li).find("a").attr("href") ? "https://hqporner.com" + $(li).find("a").attr("href") : null;
           const id = extractIdFromUrl(href);
           const text = h3.text().trim();
           const meta = $(li)
@@ -156,7 +125,7 @@ module.exports = router;
       if (items.length) sidebarSections.push({ sectionTitle, items });
     });
 
-    // 🧠 Main Sections
+    // Extract main sections
     const mainSections = [];
     $("div.row > div.12u > section").each((_, section) => {
       const sectionTitle = $(section).find("h2").first().text().trim();
@@ -197,7 +166,7 @@ module.exports = router;
       if (videos.length) mainSections.push({ sectionTitle, videos });
     });
 
-    // 🔗 Similar Links
+    // Extract similar links
     const similarLinks = [];
     $("div.12u").each((_, div12u) => {
       const ulActions = $(div12u).find("ul.actions");
@@ -206,29 +175,50 @@ module.exports = router;
         const $a = $(aEl);
         similarLinks.push({
           text: $a.text().trim(),
-          href: $a.attr("href") ? "https://hqporner.com" + $a.attr("href") : null,
+          href: $a.attr("href") ? "https://hqporner.com" + $a.attr("href") : null
         });
       });
     });
 
-    // ==========================================================
-    // STEP 4: Return all results
-    // ==========================================================
-    return res.json({
-      status: "success",
-      videoDetails,
-      sources,
-      categories,
-      sidebarSections,
-      mainSections,
-      similarLinks,
-    });
-  } catch (err) {
-    console.error("❌ Scraper error:", err.message);
-    if (!res.headersSent)
-      res.status(500).json({ status: "error", message: err.message });
+    // Prepare response
+    const responseData = {
+      success: true,
+      data: {
+        video: {
+          id,
+          title: videoTitle,
+          url,
+          uploadDate,
+          duration,
+          sources,
+          cast,
+          categories
+        },
+        relatedVideos: mainSections.flatMap(section => section.videos),
+        sidebarSections,
+        similarLinks
+      }
+    };
+
+    res.json(responseData);
+
+  } catch (error) {
+    console.error('Error in video route:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'An error occurred while processing your request',
+        details: process.env.NODE_ENV === 'production' ? undefined : error.message
+      });
+    }
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {
+        console.error('Error closing browser:', e);
+      }
+    }
   }
 });
 
